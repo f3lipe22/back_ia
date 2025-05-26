@@ -6,6 +6,7 @@ from flask import request, jsonify
 import datetime
 import logging
 from utils.aws_model import AWSModel
+import threading
 
 # Configurar logging
 logging.basicConfig(
@@ -19,7 +20,7 @@ class MQTTController:
     Controlador para manejar los mensajes recibidos del cliente MQTT.
     """
 
-    def __init__(self, db, api_url=None, api_key=None):
+    def __init__(self, db, api_url=None, api_key=None, mqtt_client=None):
         """
         Inicializa el controlador con la base de datos y la conexión al modelo AWS.
 
@@ -27,6 +28,7 @@ class MQTTController:
             db: Instancia de la base de datos MongoDB
             api_url: URL de la API de AWS (opcional)
             api_key: Clave de la API de AWS (opcional)
+            mqtt_client: Cliente MQTT para enviar alertas (opcional)
         """
         self.db = db
         # Crear colección para los mensajes MQTT si no existe
@@ -39,6 +41,9 @@ class MQTTController:
 
         # Inicializar el modelo de AWS
         self.aws_model = AWSModel(api_url, api_key)
+        
+        # Cliente MQTT para enviar alertas
+        self.mqtt_client = mqtt_client
 
         logger.info("Controlador MQTT inicializado")
 
@@ -71,28 +76,51 @@ class MQTTController:
                 "topic": data["topic"],
                 "valor": data["valor"],
                 "timestamp": datetime.datetime.now(datetime.timezone.utc),
-                "processed": False
             }
 
-            # Si el topic es sensor/temperatura, intentar convertir el valor a float
+            # Si el topic es sensor/temperatura, procesar el valor
             if data["topic"] == "sensor/temperatura":
                 try:
-                    # Guardar el valor original
+                    # El valor es directamente la temperatura (no un JSON)
+                    temperatura = float(data["valor"])
+                    
+                    # Obtener fecha y hora actual
+                    now = datetime.datetime.now()
+                    current_date = now.strftime("%Y-%m-%d")
+                    current_time = now.strftime("%H:%M:%S")
+                    
+                    # Crear el nuevo formato de mensaje
+                    transformed_message = {
+                        "sensor": "sensor",
+                        "date": current_date,
+                        "time": current_time,
+                        "location": "ia",
+                        "value": str(temperatura),
+                        "isNew": "true"
+                    }
+                    
+                    # Guardar el mensaje transformado en el documento
                     document["valor_original"] = data["valor"]
-                    # Convertir a float
-                    document["valor"] = float(data["valor"])
-                except ValueError:
-                    logger.warning(f"No se pudo convertir el valor a float: {data['valor']}")
+                    document["valor_transformado"] = transformed_message
+                    document["valor"] = temperatura
+                    
+                    # Enviar el mensaje transformado al tópico sistema/notificaciones
+                    if self.mqtt_client:
+                        self.mqtt_client.publish(
+                            topic="sistema/notificaciones",
+                            message=transformed_message
+                        )
+                        logger.info(f"Mensaje transformado enviado a sistema/notificaciones: {transformed_message}")
+                    
+                except ValueError as e:
+                    logger.warning(f"Error al procesar el valor de temperatura: {str(e)}")
+                    document["error_procesamiento"] = str(e)
 
             # Guardar en la base de datos
             result = self.db.mqtt_messages.insert_one(document)
 
             # Registrar en el log
             logger.info(f"Mensaje MQTT recibido y guardado: {data['topic']} -> {data['valor']}")
-
-            # Verificar si tenemos 60 datos de temperatura no procesados
-            if data["topic"] == "sensor/temperatura":
-                self._check_and_process_temperatures()
 
             return jsonify({
                 "status": "success",
@@ -225,6 +253,49 @@ class MQTTController:
                 )
 
             logger.info(f"Predicción completada y guardada: {result}")
+            
+            # Enviar alerta MQTT si hay un cliente MQTT disponible
+            if self.mqtt_client and result.get("status") == "success":
+                # Obtener la predicción de temperatura
+                prediction_value = None
+                if "prediction" in result and "prediccion" in result["prediction"]:
+                    prediction_value = result["prediction"]["prediccion"]
+                
+                # Determinar el mensaje según el valor de temperatura
+                temperature_status = "normal"
+                temperature_message = "La temperatura del invernadero es normal"
+                
+                if prediction_value is not None:
+                    try:
+                        temp_value = float(prediction_value)
+                        if temp_value < 20:
+                            temperature_status = "baja"
+                            temperature_message = "¡ALERTA! La temperatura del invernadero es BAJA"
+                        elif temp_value > 37:
+                            temperature_status = "alta"
+                            temperature_message = "¡ALERTA! La temperatura del invernadero es ALTA"
+                    except (ValueError, TypeError):
+                        logger.warning(f"No se pudo convertir la predicción a número: {prediction_value}")
+                
+                # Crear mensaje para la notificación móvil
+                alert_message = {
+                    "type": "temperature_prediction",
+                    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    "temperature_value": prediction_value,
+                    "temperature_status": temperature_status,
+                    "message": temperature_message,
+                    "notification": {
+                        "title": f"Temperatura {temperature_status.upper()}",
+                        "body": temperature_message,
+                        "priority": "high" if temperature_status != "normal" else "normal"
+                    }
+                }
+                
+                self.mqtt_client.publish(
+                    topic="alertas/temperatura",
+                    message=alert_message
+                )
+                logger.info(f"Alerta de temperatura enviada por MQTT: {temperature_message}")
 
         except Exception as e:
             logger.error(f"Error al procesar datos de temperatura: {str(e)}")
@@ -369,3 +440,94 @@ class MQTTController:
                 "status": "error",
                 "message": f"Error al obtener estado MQTT: {str(e)}"
             }), 500
+
+    def test_temperature(self):
+        """
+        Maneja la solicitud para probar el envío de una temperatura.
+        
+        Returns:
+            tuple: (response, status_code)
+        """
+        try:
+            # Obtener datos de la solicitud
+            data = request.get_json()
+            
+            if not data:
+                return jsonify({
+                    "status": "error",
+                    "message": "No se proporcionaron datos"
+                }), 400
+            
+            # Validar datos
+            if "valor" not in data:
+                return jsonify({
+                    "status": "error",
+                    "message": "Se requiere el campo 'valor'"
+                }), 400
+            
+            # Intentar convertir el valor a float
+            try:
+                temperatura = float(data["valor"])
+            except ValueError:
+                return jsonify({
+                    "status": "error",
+                    "message": f"El valor '{data['valor']}' no es un número válido"
+                }), 400
+            
+            # Obtener fecha y hora actual
+            now = datetime.datetime.now()
+            current_date = now.strftime("%Y-%m-%d")
+            current_time = now.strftime("%H:%M:%S")
+            
+            # Crear el mensaje transformado
+            transformed_message = {
+                "sensor": "sensor",
+                "date": current_date,
+                "time": current_time,
+                "location": "ia",
+                "value": str(temperatura),
+                "isNew": "true"
+            }
+            
+            # Crear documento para guardar en la base de datos
+            document = {
+                "topic": "sensor/temperatura",
+                "valor": temperatura,
+                "valor_original": str(temperatura),
+                "valor_transformado": transformed_message,
+                "timestamp": datetime.datetime.now(datetime.timezone.utc),
+                "source": "test_endpoint"
+            }
+            
+            # Guardar en la base de datos
+            result = self.db.mqtt_messages.insert_one(document)
+            
+            # Enviar el mensaje transformado al tópico sistema/notificaciones
+            if self.mqtt_client:
+                self.mqtt_client.publish(
+                    topic="sistema/notificaciones",
+                    message=transformed_message
+                )
+                logger.info(f"Mensaje transformado enviado a sistema/notificaciones: {transformed_message}")
+            
+            # Registrar en el log
+            logger.info(f"Temperatura de prueba recibida y guardada: {temperatura}")
+            
+            return jsonify({
+                "status": "success",
+                "message": "Temperatura guardada y transformada correctamente",
+                "document_id": str(result.inserted_id),
+                "temperatura_original": temperatura,
+                "mensaje_transformado": transformed_message
+            }), 201
+            
+        except Exception as e:
+            logger.error(f"Error al procesar temperatura de prueba: {str(e)}")
+            return jsonify({
+                "status": "error",
+                "message": f"Error al procesar temperatura: {str(e)}"
+            }), 500
+
+
+
+

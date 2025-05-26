@@ -145,3 +145,73 @@ class ImageModel:
         self.fs.delete(ObjectId(file_id))
         
         return True
+
+    def save_image_from_bytes(self, file_obj, additional_metadata=None):
+        """
+        Guarda una imagen en GridFS desde un objeto BytesIO.
+        
+        Args:
+            file_obj: Objeto BytesIO con los datos de la imagen
+            additional_metadata: Metadatos adicionales para la imagen (opcional)
+            
+        Returns:
+            str: ID del archivo guardado
+            dict: Metadatos del archivo
+        """
+        # Determinar el tipo MIME de la imagen
+        content_type = mimetypes.guess_type(file_obj.name)[0] or 'image/jpeg'
+        
+        # Crear metadatos base
+        metadata = {
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "content_type": content_type
+        }
+        
+        # Añadir metadatos adicionales si se proporcionaron
+        if additional_metadata:
+            metadata.update(additional_metadata)
+        
+        # Guardar la imagen en GridFS
+        file_id = self.fs.put(
+            file_obj,
+            filename=file_obj.name,
+            content_type=content_type,
+            metadata=metadata
+        )
+        
+        return str(file_id), metadata
+
+    def update_image_metadata(self, file_id, new_metadata):
+        """
+        Actualiza los metadatos de una imagen en GridFS.
+        
+        Args:
+            file_id: ID del archivo a actualizar
+            new_metadata: Nuevos metadatos a añadir/actualizar
+        
+        Returns:
+            bool: True si se actualizó correctamente
+        """
+        # Validar el formato del ID
+        if not ObjectId.is_valid(file_id):
+            raise ValueError("ID de archivo inválido")
+        
+        # Obtener metadatos actuales
+        file_info = self.db.fs.files.find_one({"_id": ObjectId(file_id)})
+        if not file_info:
+            raise FileNotFoundError("No se encontró la imagen")
+        
+        # Obtener metadatos actuales o crear un diccionario vacío
+        current_metadata = file_info.get("metadata", {})
+        
+        # Actualizar metadatos
+        current_metadata.update(new_metadata)
+        
+        # Guardar metadatos actualizados
+        self.db.fs.files.update_one(
+            {"_id": ObjectId(file_id)},
+            {"$set": {"metadata": current_metadata}}
+        )
+        
+        return True
+

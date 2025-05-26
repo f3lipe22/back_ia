@@ -76,3 +76,9 @@ def register_routes(app, image_controller, mqtt_controller=None):
         @app.route('/api/mqtt/status', methods=['GET'])
         def get_mqtt_status():
             return mqtt_controller.get_mqtt_status()
+        
+        # Endpoint de prueba para enviar temperatura
+        @app.route('/api/test/temperatura', methods=['POST'])
+        def test_temperature():
+            return mqtt_controller.test_temperature()
+

@@ -174,3 +174,73 @@ class ImageController:
                 "status": "error",
                 "message": f"Error al eliminar la imagen: {str(e)}"
             }), 500
+
+    def get_person_detections(self):
+        """
+        Maneja la solicitud para obtener imágenes donde se detectaron personas.
+        
+        Returns:
+            tuple: (response, status_code)
+        """
+        try:
+            # Obtener parámetros de paginación
+            limit = int(request.args.get('limit', 10))
+            skip = int(request.args.get('skip', 0))
+            min_confidence = float(request.args.get('min_confidence', 0.5))
+            
+            # Validar parámetros
+            if limit < 1 or limit > 100:
+                limit = 10
+            if skip < 0:
+                skip = 0
+            if min_confidence < 0 or min_confidence > 1:
+                min_confidence = 0.5
+            
+            # Crear filtro para buscar imágenes con personas detectadas
+            filter_query = {
+                "metadata.has_persons": True
+            }
+            
+            # Obtener imágenes
+            cursor = self.image_model.db.fs.files.find(filter_query).sort("uploadDate", -1).skip(skip).limit(limit)
+            total = self.image_model.db.fs.files.count_documents(filter_query)
+            
+            # Procesar resultados
+            detections = []
+            for file in cursor:
+                # Filtrar personas por confianza mínima
+                persons = []
+                if "metadata" in file and "face_detection_result" in file["metadata"]:
+                    result = file["metadata"]["face_detection_result"]
+                    if "prediction" in result and "persons" in result["prediction"]:
+                        for person in result["prediction"]["persons"]:
+                            if person.get("confidence", 0) >= min_confidence:
+                                persons.append(person)
+            
+                # Solo incluir si hay personas que cumplan con la confianza mínima
+                if persons:
+                    detections.append({
+                        "file_id": str(file["_id"]),
+                        "filename": file["filename"],
+                        "upload_date": file["uploadDate"].isoformat() if hasattr(file, "uploadDate") else None,
+                        "total_persons": len(persons),
+                        "persons": persons,
+                        "image_url": f"/api/image/{str(file['_id'])}"
+                    })
+            
+            return jsonify({
+                "status": "success",
+                "total": total,
+                "filtered_total": len(detections),
+                "limit": limit,
+                "skip": skip,
+                "min_confidence": min_confidence,
+                "data": detections
+            }), 200
+            
+        except Exception as e:
+            return jsonify({
+                "status": "error",
+                "message": f"Error al obtener detecciones de personas: {str(e)}"
+            }), 500
+

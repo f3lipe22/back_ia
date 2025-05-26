@@ -1,8 +1,28 @@
+# Framework web
 flask
-pymongo
-python-dotenv
 flask-cors
+
+# Base de datos
+pymongo
+
+# Variables de entorno
+python-dotenv
+
+# Manejo de archivos y tipos MIME
 python-magic
+
+# MQTT
 paho-mqtt
+
+# Programación de tareas
 schedule
+
+# Solicitudes HTTP
 requests
+
+# Procesamiento de imágenes
+Pillow
+
+# Utilidades
+boto3
+botocore
