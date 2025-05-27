@@ -528,6 +528,95 @@ class MQTTController:
                 "message": f"Error al procesar temperatura: {str(e)}"
             }), 500
 
-
-
+    def test_intrusion(self):
+        """
+        Maneja la solicitud para probar la detección de intrusos.
+        
+        Returns:
+            tuple: (response, status_code)
+        """
+        try:
+            # Obtener datos de la solicitud
+            data = request.get_json()
+            
+            if not data:
+                return jsonify({
+                    "status": "error",
+                    "message": "No se proporcionaron datos"
+                }), 400
+            
+            # Validar datos
+            if "total_persons" not in data:
+                # Usar valor predeterminado si no se proporciona
+                total_persons = 1
+            else:
+                try:
+                    total_persons = int(data["total_persons"])
+                    if total_persons <= 0:
+                        return jsonify({
+                            "status": "error",
+                            "message": "El número de personas debe ser mayor que 0"
+                        }), 400
+                except ValueError:
+                    return jsonify({
+                        "status": "error",
+                        "message": f"El valor '{data['total_persons']}' no es un número válido"
+                    }), 400
+            
+            # Obtener fecha y hora actual
+            now = datetime.datetime.now()
+            current_date = now.strftime("%Y-%m-%d")
+            current_time = now.strftime("%H:%M:%S")
+            
+            # Crear mensaje para la notificación
+            persons_text = "persona" if total_persons == 1 else "personas"
+            notification_message = f"Se detectaron {total_persons} {persons_text} en el invernadero"
+            
+            # Crear el mensaje en el formato requerido para sistema/notificaciones
+            transformed_message = {
+                "sensor": "camara",
+                "date": current_date,
+                "time": current_time,
+                "location": "invernadero",
+                "value": notification_message,
+                "isNew": "true",
+                "type": "intrusion",
+                "total_persons": total_persons,
+                "image_id": "test_image_id",
+                "confidence": data.get("confidence", 0.95)  # Usar valor predeterminado si no se proporciona
+            }
+            
+            # Enviar al tópico sistema/notificaciones
+            if self.mqtt_client:
+                self.mqtt_client.publish(
+                    topic="sistema/notificaciones",
+                    message=transformed_message
+                )
+                logger.info(f"Alerta de prueba de intrusión enviada a sistema/notificaciones: {notification_message}")
+            
+            # Crear documento para guardar en la base de datos (opcional)
+            document = {
+                "topic": "sistema/notificaciones",
+                "valor": transformed_message,
+                "timestamp": datetime.datetime.now(datetime.timezone.utc),
+                "source": "test_intrusion_endpoint"
+            }
+            
+            # Guardar en la base de datos
+            result = self.db.mqtt_messages.insert_one(document)
+            
+            return jsonify({
+                "status": "success",
+                "message": "Alerta de intrusión enviada correctamente",
+                "document_id": str(result.inserted_id),
+                "notification_message": notification_message,
+                "transformed_message": transformed_message
+            }), 201
+            
+        except Exception as e:
+            logger.error(f"Error al procesar prueba de intrusión: {str(e)}")
+            return jsonify({
+                "status": "error",
+                "message": f"Error al procesar prueba de intrusión: {str(e)}"
+            }), 500
 

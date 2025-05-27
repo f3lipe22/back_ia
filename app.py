@@ -3,8 +3,9 @@ Aplicación principal para el almacenamiento de imágenes con MongoDB GridFS.
 Implementa el patrón Modelo-Vista-Controlador (MVC).
 """
 
-from flask import Flask
+from flask import Flask, jsonify
 from flask_cors import CORS
+from flask_swagger_ui import get_swaggerui_blueprint
 import atexit
 
 # Importar configuración
@@ -26,6 +27,9 @@ from controllers.mqtt_controller import MQTTController
 # Importar vistas
 from views.routes import register_routes
 
+# Importar configuración de Swagger
+from swagger import get_swagger_config
+
 def create_app():
     """
     Crea y configura la aplicación Flask.
@@ -34,7 +38,7 @@ def create_app():
         app: Instancia de la aplicación Flask configurada
     """
     # Crear la aplicación Flask
-    app = Flask(__name__)
+    app = Flask(__name__, static_folder='static', static_url_path='/static')
 
     # Habilitar CORS para todas las rutas
     CORS(app)
@@ -83,6 +87,29 @@ def create_app():
 
     # Registrar rutas
     register_routes(app, image_controller, mqtt_controller)
+
+    # Configurar Swagger
+    swagger_config = get_swagger_config()
+    
+    # Endpoint para obtener la especificación Swagger
+    @app.route('/api/swagger.json')
+    def swagger_json():
+        return jsonify(swagger_config)
+    
+    # Configurar Swagger UI
+    SWAGGER_URL = '/api/docs'  # URL para acceder a Swagger UI
+    API_URL = '/api/swagger.json'  # URL para obtener la especificación Swagger
+    
+    swaggerui_blueprint = get_swaggerui_blueprint(
+        SWAGGER_URL,
+        API_URL,
+        config={
+            'app_name': "API de Invernadero Inteligente"
+        }
+    )
+    
+    # Registrar blueprint de Swagger UI
+    app.register_blueprint(swaggerui_blueprint, url_prefix=SWAGGER_URL)
 
     return app
 

@@ -26,3 +26,6 @@ Pillow
 # Utilidades
 boto3
 botocore
+
+# Documentación API
+flask-swagger-ui

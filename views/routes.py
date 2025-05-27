@@ -1,6 +1,7 @@
 """
 Definición de rutas para la API.
 """
+from flask import redirect
 
 def register_routes(app, image_controller, mqtt_controller=None):
     """
@@ -11,6 +12,11 @@ def register_routes(app, image_controller, mqtt_controller=None):
         image_controller: Controlador de imágenes
         mqtt_controller: Controlador de MQTT (opcional)
     """
+    
+    # Ruta principal - redirige a la documentación Swagger
+    @app.route('/')
+    def index():
+        return redirect('/api/docs')
 
     # Endpoint de prueba para verificar que la API está funcionando
     @app.route('/api/test', methods=['GET'])
@@ -81,4 +87,11 @@ def register_routes(app, image_controller, mqtt_controller=None):
         @app.route('/api/test/temperatura', methods=['POST'])
         def test_temperature():
             return mqtt_controller.test_temperature()
+
+        # Endpoint de prueba para simular detección de intrusos
+        @app.route('/api/test/intrusion', methods=['POST'])
+        def test_intrusion():
+            return mqtt_controller.test_intrusion()
+
+
 

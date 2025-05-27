@@ -88,63 +88,59 @@ class MQTTClient:
         thread.daemon = True
         thread.start()
     
-    def publish(self, topic, message, qos=1, retain=False):
+    def publish(self, topic, message):
         """
-        Publica un mensaje en el broker MQTT.
+        Publica un mensaje en un tópico MQTT.
         
         Args:
-            topic: Tema donde publicar el mensaje
-            message: Mensaje a publicar (puede ser un diccionario que se convertirá a JSON)
-            qos: Calidad de servicio (0, 1 o 2)
-            retain: Si el mensaje debe ser retenido por el broker
+            topic: Tópico MQTT
+            message: Mensaje a publicar (puede ser un diccionario o una cadena)
         
         Returns:
             bool: True si el mensaje se publicó correctamente, False en caso contrario
         """
         try:
-            # Si no está conectado, intentar reconectar
-            if not self.connected:
-                logger.warning("No conectado al broker MQTT, intentando reconectar...")
-                self._connect()
-                time.sleep(1)  # Dar tiempo para conectar
-            
-            # Asegurar que el mensaje tenga un formato adecuado para dispositivos móviles
+            # Convertir el mensaje a JSON si es un diccionario
             if isinstance(message, dict):
-                # Asegurar que el mensaje tenga un timestamp si no lo tiene
-                if "timestamp" not in message:
-                    message["timestamp"] = datetime.datetime.now().isoformat()
-                
-                # Asegurar que el mensaje tenga un campo de notificación si no lo tiene
-                if "notification" not in message and "type" in message:
-                    if message["type"] == "temperature_prediction":
-                        message["notification"] = {
-                            "title": "Actualización de temperatura",
-                            "body": "Nueva predicción de temperatura disponible",
-                            "priority": "normal"
-                        }
-                    elif message["type"] == "person_detection":
-                        message["notification"] = {
-                            "title": "Detección de personas",
-                            "body": "Se han detectado personas en el invernadero",
-                            "priority": "high"
-                        }
+                # Si el tópico es sistema/notificaciones, asegurarse de que tenga el formato correcto
+                if topic == "sistema/notificaciones":
+                    # Verificar que el mensaje tenga los campos requeridos
+                    required_fields = ["sensor", "date", "time", "location", "value", "isNew"]
+                    for field in required_fields:
+                        if field not in message:
+                            logger.warning(f"El mensaje para sistema/notificaciones no tiene el campo requerido: {field}")
+                            # Añadir campos faltantes con valores predeterminados
+                            if field == "sensor" and "sensor" not in message:
+                                message["sensor"] = "camara"
+                            elif field == "date" and "date" not in message:
+                                message["date"] = datetime.datetime.now().strftime("%Y-%m-%d")
+                            elif field == "time" and "time" not in message:
+                                message["time"] = datetime.datetime.now().strftime("%H:%M:%S")
+                            elif field == "location" and "location" not in message:
+                                message["location"] = "invernadero"
+                            elif field == "value" and "value" not in message:
+                                message["value"] = "Alerta de detección"
+                            elif field == "isNew" and "isNew" not in message:
+                                message["isNew"] = "true"
             
-            # Convertir a JSON
-            message = json.dumps(message)
+                # Convertir a JSON
+                message_json = json.dumps(message)
+            else:
+                message_json = message
         
-            # Publicar mensaje con QoS 1 por defecto para garantizar la entrega
-            result = self.client.publish(topic, message, qos, retain)
+            # Publicar el mensaje
+            result = self.client.publish(topic, message_json)
             
-            # Verificar resultado
+            # Verificar si el mensaje se publicó correctamente
             if result.rc == mqtt.MQTT_ERR_SUCCESS:
-                logger.info(f"Mensaje publicado en {topic}")
+                logger.info(f"Mensaje publicado en {topic}: {message_json}")
                 return True
             else:
                 logger.error(f"Error al publicar mensaje en {topic}: {result.rc}")
                 return False
-        
+    
         except Exception as e:
-            logger.error(f"Error al publicar mensaje: {e}")
+            logger.error(f"Error al publicar mensaje MQTT: {str(e)}")
             return False
     
     def close(self):
@@ -157,3 +153,4 @@ class MQTTClient:
             logger.info("Conexión MQTT cerrada")
         except Exception as e:
             logger.error(f"Error al cerrar conexión MQTT: {e}")
+

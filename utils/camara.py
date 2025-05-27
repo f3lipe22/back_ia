@@ -111,29 +111,35 @@ def start_capture_thread(image_model=None, aws_face_model=None, mqtt_client=None
                             
                             # Enviar alerta MQTT si hay un cliente MQTT disponible
                             if mqtt_client:
-                                # Crear mensaje para la notificación móvil
+                                # Crear mensaje para la notificación
                                 persons_text = "persona" if prediction["total_persons"] == 1 else "personas"
-                                notification_message = f"Se {prediction['total_persons']} {persons_text} en el invernadero"
+                                notification_message = f"Se detectaron {prediction['total_persons']} {persons_text} en el invernadero"
                                 
-                                alert_message = {
-                                    "type": "person_detection",
-                                    "timestamp": datetime.now().isoformat(),
-                                    "image_id": str(file_id),
-                                    "filename": filename,
+                                # Obtener fecha y hora actual
+                                now = datetime.now()
+                                current_date = now.strftime("%Y-%m-%d")
+                                current_time = now.strftime("%H:%M:%S")
+                                
+                                # Crear el mensaje en el formato requerido para sistema/notificaciones
+                                transformed_message = {
+                                    "sensor": "camara",
+                                    "date": current_date,
+                                    "time": current_time,
+                                    "location": "invernadero",
+                                    "value": notification_message,
+                                    "isNew": "true",
+                                    "type": "intrusion",
                                     "total_persons": prediction["total_persons"],
-                                    "persons": prediction["persons"],
-                                    "notification": {
-                                        "title": "¡Personas detectadas!",
-                                        "body": notification_message,
-                                        "priority": "high"
-                                    }
+                                    "image_id": str(file_id),
+                                    "confidence": max([person.get('confidence', 0) for person in prediction["persons"]]) if prediction["persons"] else 0
                                 }
                                 
+                                # Enviar al tópico sistema/notificaciones
                                 mqtt_client.publish(
-                                    topic="alertas/personas",
-                                    message=alert_message
+                                    topic="sistema/notificaciones",
+                                    message=transformed_message
                                 )
-                                logger.info(f"Alerta de detección de personas enviada por MQTT: {notification_message}")
+                                logger.info(f"Alerta de detección de personas enviada a sistema/notificaciones: {notification_message}")
                         else:
                             logger.info(f"No se detectaron personas en la imagen {filename}")
                     
