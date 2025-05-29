@@ -62,11 +62,11 @@ def create_app():
     # Crear instancia del modelo de detección de rostros
     aws_face_model = AWSFaceModel()
     
-    # Crear instancia del cliente MQTT
+    # Crear instancia del cliente MQTT solo para publicación
     mqtt_client = MQTTClient(
-        broker_host="192.168.196.202",  # Ajustar según la dirección del broker
-        broker_port=1883,
-        client_id="backend_publisher"
+        broker_host="192.168.45.221",  # Dirección del broker
+        broker_port=1883,              # Puerto TCP estándar
+        client_id="backend_publisher"  # Solo para publicar mensajes
     )
     
     # Registrar función para cerrar la conexión MQTT al finalizar la aplicación
@@ -110,6 +110,17 @@ def create_app():
     
     # Registrar blueprint de Swagger UI
     app.register_blueprint(swaggerui_blueprint, url_prefix=SWAGGER_URL)
+
+    # Registrar información sobre la configuración MQTT
+    app.config['MQTT_INFO'] = {
+        'mode': 'http_bridge',
+        'description': 'El backend recibe mensajes MQTT a través del endpoint HTTP /api/mensaje',
+        'broker': '192.168.45.221:9001 (WebSockets)',
+        'topics': ['sensor/temperatura', 'sistema/notificaciones', 'actuador/ventilador', 'actuador/bombillo']
+    }
+    
+    print("Configuración MQTT: Usando puente HTTP para recibir mensajes MQTT")
+    print("El script mqtt_to_backend.py debe estar en ejecución para recibir mensajes del broker MQTT")
 
     return app
 

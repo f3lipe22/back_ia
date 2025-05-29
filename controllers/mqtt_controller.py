@@ -49,7 +49,7 @@ class MQTTController:
 
     def receive_message(self):
         """
-        Maneja la solicitud para recibir un mensaje MQTT.
+        Maneja la solicitud para recibir un mensaje MQTT a través del endpoint HTTP.
 
         Returns:
             tuple: (response, status_code)
@@ -76,13 +76,17 @@ class MQTTController:
                 "topic": data["topic"],
                 "valor": data["valor"],
                 "timestamp": datetime.datetime.now(datetime.timezone.utc),
+                "source": "http_endpoint"
             }
 
             # Si el topic es sensor/temperatura, procesar el valor
             if data["topic"] == "sensor/temperatura":
                 try:
-                    # El valor es directamente la temperatura (no un JSON)
-                    temperatura = float(data["valor"])
+                    # El valor puede ser una cadena o un número
+                    if isinstance(data["valor"], str):
+                        temperatura = float(data["valor"])
+                    else:
+                        temperatura = float(data["valor"])
                     
                     # Obtener fecha y hora actual
                     now = datetime.datetime.now()
@@ -121,6 +125,10 @@ class MQTTController:
 
             # Registrar en el log
             logger.info(f"Mensaje MQTT recibido y guardado: {data['topic']} -> {data['valor']}")
+            
+            # Verificar si hay suficientes datos de temperatura para procesar
+            if data["topic"] == "sensor/temperatura":
+                self._check_and_process_temperatures()
 
             return jsonify({
                 "status": "success",
@@ -619,4 +627,5 @@ class MQTTController:
                 "status": "error",
                 "message": f"Error al procesar prueba de intrusión: {str(e)}"
             }), 500
+
 
